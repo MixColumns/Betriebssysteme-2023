@@ -1,0 +1,18 @@
+.PHONY: clean all clash
+CC = gcc
+CFLAGS=-std=c11 -pedantic -Wall -Werror -D_XOPEN_SOURCE=700
+
+all: clash clean
+
+clean:
+	rm -f clash.o plist.o
+
+clash: plist.o clash.o
+	$(CC) $(CFLAGS) -o clash plist.o clash.o
+
+plist.o: plist.c plist.h
+	$(CC) $(CFLAGS) -c plist.c
+
+clash.o: clash.c plist.h
+	$(CC) $(CFLAGS) -c clash.c
+

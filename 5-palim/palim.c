@@ -20,8 +20,8 @@ static struct statistics stats;
 
 // function declarations
 static void* processTree(void* path);
-static void* processDir(char* path);
-static void* processEntry(char* path, struct dirent* entry);
+static void processDir(char* path);
+static void processEntry(char* path, struct dirent* entry);
 static void* processFile(void* path);
 // TODO: add declarations if necessary
 
@@ -40,6 +40,7 @@ static void die(const char *msg) {
  * Subsequently, waits passively on statistic updates and on update prints the new statistics.
  * If all threads terminated, it frees all allocated resources and exits/returns.
  */
+
 int main(int argc, char** argv) {
 	if(argc < 4) {
 		usage();
@@ -87,13 +88,11 @@ static void* processTree(void* path) {
  * It updates the stats.dirs field.
  *
  * \param path Path to directory to process
- *
- * \return Always returns NULL
  */
-static void* processDir(char* path) {
+
+static void processDir(char* path) {
 	// TODO: implement me!
 
-	return NULL;
 }
 
 /**
@@ -105,13 +104,10 @@ static void* processDir(char* path) {
  *
  * \param path Path to the directory of the entry
  * \param entry Pointer to struct dirent as returned by readdir() of the entry
- *
- * \return Always return NULL
  */
-static void* processEntry(char* path, struct dirent* entry) {
+static void processEntry(char* path, struct dirent* entry) {
 	//TODO: implement me!
 
-	return NULL;
 }
 
 /**

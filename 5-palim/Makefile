@@ -8,7 +8,7 @@ RM      = rm -f
 all: palim
 
 clean:
-	$(RM) palim *.o
+	$(RM) palim palim.o
 
 palim: palim.o sem.o
 	$(CC) ${LDFLAGS} -o $@ $^

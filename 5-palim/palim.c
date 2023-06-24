@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <dirent.h>
 #include <errno.h>
+#include "sem.h"
+#include <pthread.h>
+#include <unistd.h>
+#include <string.h>
 
 struct statistics {
 	int lines;
@@ -24,6 +28,7 @@ static void processDir(char* path);
 static void processEntry(char* path, struct dirent* entry);
 static void* processFile(void* path);
 // TODO: add declarations if necessary
+static SEM *statsLocked;
 
 static void usage(void) {
 	fprintf(stderr, "Usage: palim <string> <max-grep-threads> <trees...>\n");
@@ -61,7 +66,35 @@ int main(int argc, char** argv) {
 		usage();
 	}
 
+
+
+
+
+
+
 	// TODO: implement me!
+	statsLocked = semCreate(1);
+	if (statsLocked == NULL) {
+    // Error handling
+	}
+	
+	// Create Crawl Threads
+	int threadstatus[argc];
+	pthread_t threads[argc];
+	for(int i=3; i<argc; i++){
+		threadstatus[i] = pthread_create( &threads[i], NULL, processTree, argv[i] );
+		if( threadstatus[i] != 0 ) {
+			die("Cant create crawl thread");
+		}
+	}
+	
+	// Join Crawl Threads back
+	for(int i=3; i<argc; i++){
+		threadstatus[i] = pthread_join(threads[i], NULL);
+	}	
+	
+	
+	processFile("");
 
 	return EXIT_SUCCESS;
 }
@@ -76,8 +109,16 @@ int main(int argc, char** argv) {
  * \return Always returns NULL
  */
 static void* processTree(void* path) {
+	fflush(NULL);
 	//TODO: implement me!
-	
+	pthread_detach(pthread_self());
+	P(statsLocked);
+	stats.activeCrawlThreads += 1;
+	V(statsLocked);
+	processDir(path);
+	P(statsLocked);
+	stats.activeCrawlThreads -= 1;
+	V(statsLocked);
 	return NULL;
 }
 
@@ -91,8 +132,41 @@ static void* processTree(void* path) {
  */
 
 static void processDir(char* path) {
-	// TODO: implement me!
+	// TODO: implement me!	
+	DIR *dir;
+    struct dirent *entry;
 
+    dir = opendir(path);
+    if (dir == NULL) {
+        perror("Unable to open dir");
+        return;
+    }
+
+	errno = 0;
+    while ((entry = readdir(dir)) != NULL) {
+        //printf("%s\n", entry->d_name);
+        if(strcmp(entry->d_name, "..") == 0){
+			// skip
+		}else if(strcmp(entry->d_name, ".") == 0){
+			// skip
+		}else{
+			processEntry(path, entry);
+		}
+    }
+    if(errno != 0){
+		perror("Could not read entry");
+	}
+
+    int closed = closedir(dir);
+	if (closed != 0){
+		die("Something went very wrong closing a folder");
+	}
+	
+	P(statsLocked);
+	stats.dirs += 1;
+	V(statsLocked);
+	
+	return;
 }
 
 /**
@@ -107,7 +181,6 @@ static void processDir(char* path) {
  */
 static void processEntry(char* path, struct dirent* entry) {
 	//TODO: implement me!
-
 }
 
 /**

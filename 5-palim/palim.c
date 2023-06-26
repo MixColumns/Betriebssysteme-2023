@@ -2,10 +2,11 @@
 #include <stdlib.h>
 #include <dirent.h>
 #include <errno.h>
-#include "sem.h"
 #include <pthread.h>
+#include "sem.h"
 #include <unistd.h>
 #include <string.h>
+#include <sys/stat.h>
 
 struct statistics {
 	int lines;
@@ -28,7 +29,14 @@ static void processDir(char* path);
 static void processEntry(char* path, struct dirent* entry);
 static void* processFile(void* path);
 // TODO: add declarations if necessary
-static SEM *statsLocked;
+// Locking the Stats
+static SEM *statLock;
+// For the amound of Threads + Waiting
+static SEM *grepThreads;
+// Search String
+static char* needle;
+// If stats are new or old
+static int newStats = 0;
 
 static void usage(void) {
 	fprintf(stderr, "Usage: palim <string> <max-grep-threads> <trees...>\n");
@@ -67,35 +75,80 @@ int main(int argc, char** argv) {
 	}
 
 
-
-
-
-
-
 	// TODO: implement me!
-	statsLocked = semCreate(1);
-	if (statsLocked == NULL) {
-    // Error handling
-	}
 	
-	// Create Crawl Threads
-	int threadstatus[argc];
-	pthread_t threads[argc];
+	// 🍰  🎀  𝒱𝒾𝑒𝓁 𝒮𝓅𝒶ß 𝒷𝑒𝒾𝓂 𝓀🏵𝓇𝓇𝒾𝑔𝒾𝑒𝓇𝑒𝓃  🎀  🍰
+	
+	// Initialize the stats
+	stats.activeCrawlThreads = 0;
+	stats.activeGrepThreads = 0;
+	stats.dirs = 0;
+	stats.fileHits = 0;
+	stats.files = 0;
+	stats.lineHits = 0;
+	stats.lines = 0;
+	
+	// Set the search string
+	needle = argv[1];
+	
+	// Create Semaphore to lock the Stats
+	statLock = semCreate(1);
+    if(statLock == NULL){die("semCreate() failed");}
+    
+    // Create Semaphore that keeps track of the threads plus waiting
+    grepThreads = semCreate(stats.maxGrepThreads);
+    if(grepThreads == NULL){die("semCreate() failed");}
+    
+	// Create the Crawl Threads and detach them
+	pthread_t thräds[argc-3]; // we have argc-3 many dirs
 	for(int i=3; i<argc; i++){
-		threadstatus[i] = pthread_create( &threads[i], NULL, processTree, argv[i] );
-		if( threadstatus[i] != 0 ) {
-			die("Cant create crawl thread");
-		}
+		// create a thread with the given directory as parameter
+		errno = pthread_create(&thräds[i-3], NULL, processTree, argv[i]);
+		if(errno != 0){die("pthread_create");}
+		// detach thread
+		errno = pthread_detach(thräds[i-3]);
+		if(errno != 0){die("pthread_detach");}
+		// Update the stats but because we are still in the main thread
+		// we dont need to update the statupdatecheker var. The threads
+		// will do that until then anyway.
+		P(statLock); // Lock stats
+		stats.activeCrawlThreads+=1; // Update Threads
+		V(statLock); // Unlock stats
 	}
-	
-	// Join Crawl Threads back
-	for(int i=3; i<argc; i++){
-		threadstatus[i] = pthread_join(threads[i], NULL);
-	}	
-	
-	
-	processFile("");
 
+	// Wait for threads to finish and print stats until then
+	while(1){
+		
+		// Var to copy the stats
+		struct statistics stat = stats;
+		
+		// Lock Stats
+		P(statLock);
+		if(newStats != 0){ // Check if theres anything new if not skip
+			stat = stats; // copy stats to local var for long print time
+			newStats = 0; // reset the stat change var
+		}
+		V(statLock); // unlock the stats 🔒 (wiat emojis are illigal)
+		
+		// print the stats in the given format
+		printf("\r%i/%i lines, %i/%i files, %i directories, %i active threads",
+		stat.lineHits,stat.lines,stat.fileHits,stat.files,stat.dirs, stat.activeGrepThreads);
+		
+		// we are done when crawl and grep threads are done. this does not
+		// need to be in a semaphore because we dont write to the value and
+		// crawl threads can only decrement over time. 
+		// just like my will to study.
+		if(stat.activeCrawlThreads == 0 && stat.activeGrepThreads == 0){break;}
+	
+	}
+	
+	// Clean our mess up qwq
+    semDestroy(statLock);
+    semDestroy(grepThreads);
+	printf("\n");
+	fflush(NULL); // awwwww
+	
+	// (っ◔◡◔)っ ♥ palim palim ♥
 	return EXIT_SUCCESS;
 }
 
@@ -109,17 +162,14 @@ int main(int argc, char** argv) {
  * \return Always returns NULL
  */
 static void* processTree(void* path) {
-	fflush(NULL);
 	//TODO: implement me!
-	pthread_detach(pthread_self());
-	P(statsLocked);
-	stats.activeCrawlThreads += 1;
-	V(statsLocked);
+	// Call Process Dir with the given path
 	processDir(path);
-	P(statsLocked);
-	stats.activeCrawlThreads -= 1;
-	V(statsLocked);
-	return NULL;
+	P(statLock); // Lock the stats
+	stats.activeCrawlThreads-=1; // we are done so decr. counter before return
+	newStats = 1; // stats changed too so plz check mommy mainthread
+	V(statLock); // unlock stats
+	return NULL; // GO BACK!
 }
 
 /**
@@ -132,40 +182,47 @@ static void* processTree(void* path) {
  */
 
 static void processDir(char* path) {
-	// TODO: implement me!	
+	// TODO: implement me!
+	
+	// Pointer for da dir
 	DIR *dir;
-    struct dirent *entry;
+    struct dirent *entry; // even a structure how fancy
 
+	// Open up https://www.youtube.com/watch?v=hZj9bi7YNmI
     dir = opendir(path);
     if (dir == NULL) {
-        perror("Unable to open dir");
+		// Check if it worked. If not we probably dont have perms or smth. RET.
+        perror("opendir");
         return;
     }
-
+	
+	// To see if we had something going wrong
 	errno = 0;
     while ((entry = readdir(dir)) != NULL) {
-        //printf("%s\n", entry->d_name);
-        if(strcmp(entry->d_name, "..") == 0){
+        if(strcmp(entry->d_name, "..\0") == 0){ // check if .. folder optional do something
 			// skip
-		}else if(strcmp(entry->d_name, ".") == 0){
+		}else if(strcmp(entry->d_name, ".\0") == 0){ // check if . folder optional do something
 			// skip
 		}else{
-			processEntry(path, entry);
+			processEntry(path, entry); // YAY Finally something to process
 		}
-    }
-    if(errno != 0){
-		perror("Could not read entry");
-	}
+    }if(errno != 0){perror("readdir");} // Well that didnt work out
 
-    int closed = closedir(dir);
-	if (closed != 0){
-		die("Something went very wrong closing a folder");
-	}
-	
-	P(statsLocked);
-	stats.dirs += 1;
-	V(statsLocked);
-	
+    int err = closedir(dir);
+    if(err != 0){perror("closedir");} // neither did this. fuck.
+    
+    // generally i dont want to commit seppuku at this point because
+    // this might be due to some weird file perms or other things going
+    // on. Lets just try to keep running like a brave student through
+    // the end of the semester barely holding it together but making it somehow.
+    
+    // Update the stats :) just like before :D
+    P(statLock);
+	stats.dirs+=1;
+	newStats = 1;
+	V(statLock);
+
+	// R E T U R N
 	return;
 }
 
@@ -181,6 +238,43 @@ static void processDir(char* path) {
  */
 static void processEntry(char* path, struct dirent* entry) {
 	//TODO: implement me!
+	
+	// Calculate the Path plus filename to call process file later.
+	// Have to join the strings somehow.
+	int len = 0;
+	len += strlen(path);
+	len += strlen(entry->d_name);
+	char* fullpath = malloc(sizeof(char) * len + 4);
+	if(fullpath == NULL){
+		die("malloc"); // Mommy Melloc is gone ;_;
+	}
+	strcpy(fullpath, path);
+	strcat(fullpath, "/");
+	strcat(fullpath, entry->d_name); // 𝓱𝓪𝓷𝓭𝓱𝓸𝓵𝓭𝓲𝓷𝓰  <3 uwu join those strings
+	
+	struct stat file_stat;
+	lstat(fullpath, &file_stat);
+	if (S_ISDIR(file_stat.st_mode)) { // check if dir
+		processDir(fullpath); // r̶̬̾̅̒̌͠͝ȅ̵̺͚̮̣͚̲͚̳͉͛̉̐̓̉̏ċ̶̛͖͔͈̗ư̶͇̱̳͙̫͙̔̓̆͑͒̋́̅r̵̢̜͙̺͌s̴̻͖̥͉͔̃̀̚ͅḭ̵̡̰̬͇̖̖̈̈́̆͝ͅͅo̸̡͍̟̯̓̀̏͌͒͗ṇ̴̛̦̬͍̝͇̩̟͙̀͋̀͛̄͛́̏̍ͅ
+	}else if(S_ISREG(file_stat.st_mode)){ // check if ᵣₑgᵤₗₐᵣ file.
+		
+		// Update our stats
+		P(grepThreads);
+		P(statLock);
+		stats.activeGrepThreads+=1;
+		newStats = 1;
+		V(statLock);
+		
+		// We need more THRÖÖÖÖÖÖDS
+		pthread_t thrööd;
+		errno = pthread_create(&thrööd, NULL, processFile, (void*) fullpath);
+		if(errno != 0){die("pthread_create");}
+		errno = pthread_detach(thrööd);
+		if(errno != 0){die("pthread_detach");}		
+	}
+	
+	// <- ciao kakao
+	return;
 }
 
 /**
@@ -195,8 +289,61 @@ static void processEntry(char* path, struct dirent* entry) {
  * \return Always returns NULL
  */
 static void* processFile(void* path) {
-	//TODO: implement me!
+	
+	// Hit those lines
+	int t_lineHits = 0;
+	int t_lines = 0;
 
+	// Open da file
+	FILE *fp = fopen(path, "r");
+	if(fp == NULL){
+		die("fopen");
+	}
+	
+	// line by line
+	char *linebuf = malloc(sizeof(char)*(4096+2));
+	if(linebuf == NULL){
+		die("malloc"); // or die
+	}
+	
+	// WAIT THERES STILL MOREEEE OwO
+	while(fgets(linebuf, 4096+2, fp) != NULL){
+		
+		t_lines += 1;
+
+		char *ptr = linebuf;	
+		ptr = strstr(ptr, needle);
+
+		if(ptr != NULL){
+			// Holy fucking bingles we found something POG
+			t_lineHits += 1;
+		}
+	
+		memset(linebuf,0,strlen(linebuf));		
+		
+	}if (!feof(fp)){
+        die("fgets"); // F
+    }
+
+	int e = fclose(fp);
+	if(e != 0){die("fclose");} // WAIT WHY COULD THIS HAPPEN WTFASJASDKLMAL
+	
+	// finally
+	free(linebuf); // free
+	V(grepThreads);
+	P(statLock);
+	stats.lines+=t_lines;
+	stats.lineHits+=t_lineHits;
+	stats.activeGrepThreads-=1;
+	stats.files+=1;
+	if(t_lineHits!=0){stats.fileHits+=1;}
+	newStats = 1;
+	V(statLock);
+	free(path);
 	return NULL;
+	
+	
+	// I hope the comments were as both fun and awful to read as this was
+	// to program.
 }
 

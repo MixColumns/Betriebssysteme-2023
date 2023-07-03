@@ -36,7 +36,7 @@ static SEM *grepThreads;
 // Search String
 static char* needle;
 // If stats are new or old
-static int newStats = 0;
+static SEM *newStat;
 
 static void usage(void) {
 	fprintf(stderr, "Usage: palim <string> <max-grep-threads> <trees...>\n");
@@ -99,6 +99,10 @@ int main(int argc, char** argv) {
     grepThreads = semCreate(stats.maxGrepThreads);
     if(grepThreads == NULL){die("semCreate() failed");}
     
+    // Anything new on the stats?
+    newStat = semCreate(0);
+    if(newStat == NULL){die("semCreate() failed");}
+    
 	// Create the Crawl Threads and detach them
 	pthread_t thräds[argc-3]; // we have argc-3 many dirs
 	for(int i=3; i<argc; i++){
@@ -123,11 +127,9 @@ int main(int argc, char** argv) {
 		struct statistics stat = stats;
 		
 		// Lock Stats
+		P(newStat);
 		P(statLock);
-		if(newStats != 0){ // Check if theres anything new if not skip
-			stat = stats; // copy stats to local var for long print time
-			newStats = 0; // reset the stat change var
-		}
+		stat = stats; // copy stats to local var for long print time
 		V(statLock); // unlock the stats 🔒 (wiat emojis are illigal)
 		
 		// print the stats in the given format
@@ -167,7 +169,7 @@ static void* processTree(void* path) {
 	processDir(path);
 	P(statLock); // Lock the stats
 	stats.activeCrawlThreads-=1; // we are done so decr. counter before return
-	newStats = 1; // stats changed too so plz check mommy mainthread
+	V(newStat); // stats changed too so plz check mommy mainthread
 	V(statLock); // unlock stats
 	return NULL; // GO BACK!
 }
@@ -219,7 +221,7 @@ static void processDir(char* path) {
     // Update the stats :) just like before :D
     P(statLock);
 	stats.dirs+=1;
-	newStats = 1;
+	V(newStat);
 	V(statLock);
 
 	// R E T U R N
@@ -262,7 +264,7 @@ static void processEntry(char* path, struct dirent* entry) {
 		P(grepThreads);
 		P(statLock);
 		stats.activeGrepThreads+=1;
-		newStats = 1;
+		V(newStat);
 		V(statLock);
 		
 		// We need more THRÖÖÖÖÖÖDS
@@ -337,7 +339,7 @@ static void* processFile(void* path) {
 	stats.activeGrepThreads-=1;
 	stats.files+=1;
 	if(t_lineHits!=0){stats.fileHits+=1;}
-	newStats = 1;
+	V(newStat);
 	V(statLock);
 	free(path);
 	return NULL;

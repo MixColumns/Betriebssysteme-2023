@@ -1,0 +1,28 @@
+.PHONY: clean all clash
+CC = gcc
+CFLAGS=-std=c11 -pedantic -Wall -Werror -D_XOPEN_SOURCE=700
+
+##K
+# Hinweis: Achte darauf das Makefile auch wirklich Mak_e_file zu nennen, damit es direkt beim make Aufruf gefunden wird. (-2)
+#/
+
+all: clash clean
+
+##K Es sollen nicht mit jeder Ausführung von all auch alle Zwischenprodukte gelöscht werden. So geht der Effizienzgewinn, dadurch dass nur selektiv die Zwischenprodukte neu gebaut werden müssen bei denen sich die Abhängigkeitn geändert haben, wieder verloren (-0.5) #/
+
+clean:
+	rm -f clash.o plist.o
+
+clash: plist.o clash.o
+	$(CC) $(CFLAGS) -o clash plist.o clash.o
+
+plist.o: plist.c plist.h
+	$(CC) $(CFLAGS) -c plist.c
+
+clash.o: clash.c plist.h
+	$(CC) $(CFLAGS) -c clash.c
+
+
+##P----> #-------------------------------------------------------------------#
+         # Punktabzug in dieser Datei: 0.5 Punkte                            #
+         #-------------------------------------------------------------------#/
